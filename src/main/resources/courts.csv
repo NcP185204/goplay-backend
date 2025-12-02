@@ -1,0 +1,5 @@
+﻿
+
+name,address,courtType,pricePerHour,latitude,longitude,mainImageUrl
+Sân Thể Thao A,"123 Đường Lê Lợi, Q1, TP.HCM",FOOTBALL,300000,10.776889,106.700806,https://example.com/imageA.jpg
+Sân Cầu Lông B,"45 Nguyễn Trãi, Q5, TP.HCM",BADMINTON,120000,10.754321,106.663912,https://example.com/imageB.jpg
