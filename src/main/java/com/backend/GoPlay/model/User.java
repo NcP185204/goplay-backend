@@ -1,8 +1,5 @@
 package com.backend.GoPlay.model;
 
-
-
-
 import com.backend.GoPlay.util.UserRole;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -16,14 +13,16 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "users") // Đổi tên bảng thành "users" cho chuẩn
+@Table(name = "users")
 public class User implements UserDetails {
 
     private static final Logger logger = LoggerFactory.getLogger(User.class);
@@ -39,38 +38,43 @@ public class User implements UserDetails {
     private String email;
 
     @Column(nullable = false)
-    private String password; // Đây sẽ là mật khẩu đã được băm
+    private String password;
 
     @Column(name = "phone_number")
     private String phoneNumber;
 
-    @Enumerated(EnumType.STRING) // Lưu vai trò dưới dạng String (PLAYER, ADMIN)
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserRole role;
+
+    // --- MỐI QUAN HỆ NHIỀU-NHIỀU VỚI SÂN YÊU THÍCH ---
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "user_favorite_courts", // Tên bảng trung gian sẽ được tạo
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "court_id")
+    )
+    @Builder.Default // Đảm bảo trường này được khởi tạo khi dùng Builder
+    private Set<Court> favoriteCourts = new HashSet<>();
 
     // --- Các phương thức của UserDetails ---
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        // --- LOGGING ĐỂ DEBUG ---
         if (role == null) {
             logger.error("QUAN TRỌNG: User role bị NULL khi tạo quyền cho user: {}", this.email);
-            return List.of(); // Trả về danh sách rỗng nếu role là null
+            return List.of();
         }
         String authorityString = "ROLE_" + role.name();
         logger.info("Tạo quyền cho user: '{}', role: '{}', authority: '{}'", this.email, this.role, authorityString);
-        // --- KẾT THÚC LOGGING ---
-
         return List.of(new SimpleGrantedAuthority(authorityString));
     }
 
     @Override
     public String getUsername() {
-        // Chúng ta dùng email làm username
         return email;
     }
 
-    // Các phương thức khác để đơn giản ta luôn trả về true
     @Override
     public boolean isAccountNonExpired() {
         return true;
