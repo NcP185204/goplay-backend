@@ -18,6 +18,7 @@ public class CourtDetailResponse {
     private Double averageRating;
     private String ownerName;
     private String ownerEmail;
+    private String thumbnailUrl; // THÊM TRƯỜNG NÀY
     private List<String> imageUrls;
     private Set<FacilityService> services;
     private Double latitude;
