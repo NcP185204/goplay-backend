@@ -1,9 +1,10 @@
-package com.backend.GoPlay.config; // Đảm bảo đúng package của bạn
+package com.backend.GoPlay.config;
 
 import com.backend.GoPlay.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -21,61 +22,48 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
-@EnableMethodSecurity // Bật tính năng @PreAuthorize, @Secured
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
-    private final UserDetailsService userDetailsService; // Đã được implement bởi UserDetailsServiceImpl
-
-    // Danh sách các đường dẫn không cần xác thực
-    private static final String[] WHITE_LIST_URLS = {
-            "/api/auth/**",           // Cho phép API đăng ký, đăng nhập
-            "/v3/api-docs/**",        // Cho phép Swagger/OpenAPI
-            "/swagger-ui/**",         // Cho phép Swagger UI
-            "/h2-console/**"          // (Nếu dùng) Cho phép H2 Console
-            // Thêm các API public khác nếu có (ví dụ: /api/courts/search)
-    };
+    private final UserDetailsService userDetailsService;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                // Tắt CSRF vì chúng ta dùng JWT (stateless)
-                .csrf(csrf -> csrf.disable()) // Tắt tính năng bảo vệ CSRF
-
-                // Cấu hình các đường dẫn được phép
+                .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(req -> req
-                        .requestMatchers(WHITE_LIST_URLS).permitAll() // Cho phép các đường dẫn trong WHITE_LIST
+                        // --- CÁC API CÔNG KHAI ---
+                        .requestMatchers("/api/auth/**").permitAll() // Đăng ký, đăng nhập, social
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll() // Swagger
+                        // Cho phép tất cả các API GET của Court (xem danh sách, chi tiết, search, reviews)
+                        .requestMatchers(HttpMethod.GET, "/api/courts/**").permitAll()
+                        
+                        // --- CÁC API CẦN XÁC THỰC ---
                         .anyRequest().authenticated() // Tất cả các request còn lại phải được xác thực
                 )
-                // Không dùng session (stateless)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // Cung cấp AuthenticationProvider
                 .authenticationProvider(authenticationProvider())
-                // Thêm filter JWT vào trước filter UsernamePassword
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
-        // (Nếu dùng H2) Cho phép H2 Console hiển thị trong frame
         http.headers(headers -> headers.frameOptions(frameOptions -> frameOptions.disable()));
 
         return http.build();
     }
 
-    // Bean cung cấp PasswordEncoder (dùng BCrypt)
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
-    // Bean cung cấp AuthenticationProvider
     @Bean
     public AuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService); // Cung cấp cách tìm User
-        authProvider.setPasswordEncoder(passwordEncoder()); // Cung cấp cách check Pass
+        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
 
-    // Bean cung cấp AuthenticationManager
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
