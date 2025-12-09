@@ -33,14 +33,10 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(req -> req
-                        // --- CÁC API CÔNG KHAI ---
-                        .requestMatchers("/api/auth/**").permitAll() // Đăng ký, đăng nhập, social
-                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll() // Swagger
-                        // Cho phép tất cả các API GET của Court (xem danh sách, chi tiết, search, reviews)
+                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/social-login", "/api/auth/refresh").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/courts/**").permitAll()
-                        
-                        // --- CÁC API CẦN XÁC THỰC ---
-                        .anyRequest().authenticated() // Tất cả các request còn lại phải được xác thực
+                        .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authenticationProvider(authenticationProvider())
