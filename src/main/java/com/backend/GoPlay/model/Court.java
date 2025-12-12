@@ -39,22 +39,24 @@ public class Court {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false) private SportType courtType;
 
+    // Trường này sẽ trở thành giá mặc định, hoặc có thể xóa đi
     private Double pricePerHour;
     private Double latitude;
     private Double longitude;
     private Double averageRating = 0.0;
 
-    // --- CỘT MỚI CHO ẢNH ĐẠI DIỆN ---
     @Column(name = "thumbnail_url", length = 512)
     private String thumbnailUrl;
 
-    // --- MỐI QUAN HỆ 1-N VỚI BẢNG COURT_IMAGES ---
-    // Thay thế cho @ElementCollection cũ
     @OneToMany(mappedBy = "court", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<CourtImage> images = new ArrayList<>();
 
-    // --- TIỆN ÍCH (Giữ nguyên) ---
+    // --- MỐI QUAN HỆ MỚI VỚI QUY TẮC GIÁ ---
+    @OneToMany(mappedBy = "court", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<PricingRule> pricingRules = new ArrayList<>();
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "court_services", joinColumns = @JoinColumn(name = "court_id"))
     @Enumerated(EnumType.STRING)
