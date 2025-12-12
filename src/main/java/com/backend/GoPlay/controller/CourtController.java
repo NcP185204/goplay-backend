@@ -1,10 +1,12 @@
 package com.backend.GoPlay.controller;
 
 import com.backend.GoPlay.model.CourtImage;
+import com.backend.GoPlay.model.PricingRule;
 import com.backend.GoPlay.util.SportType;
 import com.backend.GoPlay.dto.court.*;
 import com.backend.GoPlay.model.User;
 import com.backend.GoPlay.service.CourtService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,9 +31,49 @@ public class CourtController {
 
     // ... (các API khác giữ nguyên)
 
-    // --- API SEARCH ĐÃ ĐƯỢC TỐI ƯU HÓA ---
+    // ==========================================================
+    // --- API MỚI: QUẢN LÝ GIÁ ---
+    // ==========================================================
+
+    @PostMapping("/{courtId}/pricing-rules")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<PricingRule> setPricingRule(
+            @PathVariable Integer courtId,
+            @Valid @RequestBody PricingRuleDto dto,
+            @AuthenticationPrincipal User manager) {
+        PricingRule newRule = courtService.setPricingRule(courtId, dto, manager);
+        return new ResponseEntity<>(newRule, HttpStatus.CREATED);
+    }
+
+    @GetMapping("/{courtId}/pricing-rules")
+    public ResponseEntity<List<PricingRule>> getPricingRules(@PathVariable Integer courtId) {
+        return ResponseEntity.ok(courtService.getPricingRules(courtId));
+    }
+
+    @DeleteMapping("/{courtId}/pricing-rules/{ruleId}")
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<Void> deletePricingRule(
+            @PathVariable Integer courtId,
+            @PathVariable Integer ruleId,
+            @AuthenticationPrincipal User manager) {
+        courtService.deletePricingRule(courtId, ruleId, manager);
+        return ResponseEntity.noContent().build();
+    }
+    
+    // ... (các API khác giữ nguyên)
+    @PostMapping
+    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
+    public ResponseEntity<CourtDetailResponse> create(@RequestBody CreateCourtRequest req, @AuthenticationPrincipal User user) {
+        return new ResponseEntity<>(courtService.createCourt(req, user), HttpStatus.CREATED);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<CourtDetailResponse> getById(@PathVariable Integer id) {
+        return ResponseEntity.ok(courtService.getCourtById(id));
+    }
+    
     @GetMapping("/search")
-    public ResponseEntity<Page<CourtSummaryResponse>> search( // THAY ĐỔI KIỂU TRẢ VỀ
+    public ResponseEntity<Page<CourtSummaryResponse>> search(
             @RequestParam(required = false) String name,
             @RequestParam(required = false) SportType courtType,
             @RequestParam(required = false) Double minPrice,
@@ -49,18 +91,6 @@ public class CourtController {
         criteria.setLatitude(latitude); criteria.setLongitude(longitude);
         criteria.setRadiusInKm(radiusInKm);
         return ResponseEntity.ok(courtService.searchCourts(criteria, pageable));
-    }
-
-    // ... (các API khác giữ nguyên)
-    @PostMapping
-    @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
-    public ResponseEntity<CourtDetailResponse> create(@RequestBody CreateCourtRequest req, @AuthenticationPrincipal User user) {
-        return new ResponseEntity<>(courtService.createCourt(req, user), HttpStatus.CREATED);
-    }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<CourtDetailResponse> getById(@PathVariable Integer id) {
-        return ResponseEntity.ok(courtService.getCourtById(id));
     }
 
     @PutMapping("/{id}")
@@ -100,7 +130,7 @@ public class CourtController {
     ) {
         return ResponseEntity.ok(courtService.getReviews(courtId, pageable));
     }
-
+    
     @GetMapping("/{courtId}/available-slots")
     public ResponseEntity<List<TimeSlotDto>> getAvailableSlots(
             @PathVariable Integer courtId,
@@ -112,9 +142,11 @@ public class CourtController {
     @PostMapping("/{courtId}/generate-slots")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_MANAGER')")
     public ResponseEntity<List<TimeSlotDto>> generateSlots(
-            @PathVariable Integer courtId
+            @PathVariable Integer courtId,
+            @Valid @RequestBody GenerateTimeSlotRequest request
     ) {
-        return new ResponseEntity<>(courtService.generateInitialTimeSlots(courtId), HttpStatus.CREATED);
+        List<TimeSlotDto> generatedSlots = courtService.generateInitialTimeSlots(courtId, request);
+        return new ResponseEntity<>(generatedSlots, HttpStatus.CREATED);
     }
 
     @PostMapping(value = "/{id}/images", consumes = "multipart/form-data")
