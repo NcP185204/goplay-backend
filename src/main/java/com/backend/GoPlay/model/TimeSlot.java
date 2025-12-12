@@ -20,7 +20,6 @@ public class TimeSlot {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
-    // Quan hệ: Một sân (Court) có nhiều khung giờ (TimeSlot)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "court_id", nullable = false)
     private Court court;
@@ -32,12 +31,9 @@ public class TimeSlot {
     private LocalDateTime endTime;
 
     @Column(nullable = false)
-    private boolean isAvailable;
+    private boolean isAvailable = true;
 
-    // Sửa từ đây: Thêm quan hệ với User (người đã đặt)
-//    @ManyToOne(fetch = FetchType.LAZY)
-//    @JoinColumn(name = "player_id") // Khóa ngoại (Foreign Key) trỏ đến bảng users
-//    private User player; // Đây là người chơi (User) đã đặt khung giờ này
-//
-//    // Sau này, khi được đặt, bạn sẽ thêm @ManyToOne User (người đã đặt) vào đây
+    // --- CỘT MỚI ĐỂ LƯU GIÁ ---
+    @Column(nullable = false)
+    private Double price;
 }
