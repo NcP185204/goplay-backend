@@ -9,6 +9,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpMethod;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -19,6 +20,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
@@ -26,6 +29,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService userDetailsService;
+
+    // Danh sách các đường dẫn công khai mà filter này sẽ bỏ qua
+    private static final List<String> PUBLIC_PATHS = Arrays.asList(
+            "/api/auth/register",
+            "/api/auth/login",
+            "/api/auth/social-login",
+            "/api/auth/refresh"
+    );
 
     @Override
     protected void doFilterInternal(
@@ -38,14 +49,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         final String jwt;
         final String userEmail;
 
-        // 1. Kiểm tra Header Authorization
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // 2. Lấy token từ Header
-        jwt = authHeader.substring(7); // Bỏ "Bearer "
+        jwt = authHeader.substring(7);
 
         try {
             userEmail = jwtTokenProvider.extractUsername(jwt);
@@ -57,11 +66,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 3. Nếu token hợp lệ và chưa có Authentication trong SecurityContext
         if (userEmail != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             UserDetails userDetails = this.userDetailsService.loadUserByUsername(userEmail);
 
-            // 4. Kiểm tra tính hợp lệ của token
             if (jwtTokenProvider.isTokenValid(jwt, userDetails)) {
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
                         userDetails,
@@ -73,17 +80,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
 
-        // 5. Chuyển request cho filter tiếp theo
         filterChain.doFilter(request, response);
     }
 
-    // Override phương thức này để bỏ qua filter cho các đường dẫn công khai
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) throws ServletException {
         String path = request.getServletPath();
-        return path.startsWith("/api/auth/register") ||
-               path.startsWith("/api/auth/login") ||
-               path.startsWith("/api/auth/social-login") ||
-               path.startsWith("/api/auth/refresh");
+        String method = request.getMethod();
+
+        // Bỏ qua filter cho các API GET công khai của Court
+        if (path.startsWith("/api/courts") && method.equals(HttpMethod.GET.name())) {
+            return true;
+        }
+
+        // Bỏ qua filter cho các API xác thực
+        return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
     }
 }
