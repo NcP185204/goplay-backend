@@ -1,24 +1,26 @@
 package com.backend.GoPlay.dto.court;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Builder;
 import lombok.Data;
+
+import java.time.LocalDateTime;
 
 @Data
 @Builder
 public class TimeSlotDto {
 
-    // ID của khung giờ
-    private String id;
+    private Integer id;
+    private Integer courtId;
 
-    // ID của sân (để tiện cho frontend)
-    private String courtId;
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime startTime;
 
-    // Thời điểm bắt đầu (dùng Long - Timestamp tính bằng milliseconds)
-    private long startTime;
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime endTime;
 
-    // Thời điểm kết thúc (dùng Long - Timestamp tính bằng milliseconds)
-    private long endTime;
-
-    // Trạng thái khả dụng
     private boolean isAvailable;
+
+    // --- THÊM TRƯỜNG GIÁ ---
+    private Double price;
 }
