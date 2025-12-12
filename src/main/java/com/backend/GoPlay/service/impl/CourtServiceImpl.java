@@ -16,9 +16,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -34,92 +37,118 @@ public class CourtServiceImpl implements CourtService {
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
     private final CourtImageRepository courtImageRepository;
+    private final PricingRuleRepository pricingRuleRepository; // INJECT REPO MỚI
 
-    // --- (Các hàm CRUD, Review, Image... giữ nguyên) ---
-    // ...
+    // ... (các hàm khác giữ nguyên)
 
-    // ==========================================================
-    // --- TỐI ƯU HÓA: SỬA LẠI HÀM SEARCH ---
-    // ==========================================================
     @Override
-    public Page<CourtSummaryResponse> searchCourts(CourtSearchCriteria criteria, Pageable pageable) {
-        Page<Court> courts = courtRepository.findAll(courtSpecification.build(criteria), pageable);
+    @Transactional
+    public List<TimeSlotDto> generateInitialTimeSlots(Integer courtId, GenerateTimeSlotRequest request) {
+        Court court = findCourtById(courtId);
+        List<TimeSlot> newSlots = new ArrayList<>();
 
-        // Dùng hàm map của Page để chuyển đổi từ Page<Court> sang Page<CourtSummaryResponse>
-        return courts.map(court -> {
-            CourtSummaryResponse summary = mapToSummaryResponse(court);
-            // Tính toán khoảng cách nếu có thông tin vị trí
-            if (criteria.getLatitude() != null && criteria.getLongitude() != null) {
-                summary.setDistanceInKm(calculateDistance(
-                        criteria.getLatitude(), criteria.getLongitude(),
-                        court.getLatitude(), court.getLongitude()));
+        LocalDate startDate = request.getStartDate();
+        int numberOfDays = request.getNumberOfDays();
+        int slotDurationInMinutes = request.getSlotDurationInMinutes();
+
+        for (int i = 0; i < numberOfDays; i++) {
+            LocalDate currentDate = startDate.plusDays(i);
+            LocalDateTime slotTime = currentDate.atTime(request.getOpenTime());
+            LocalDateTime closeTime = currentDate.atTime(request.getCloseTime());
+
+            while (slotTime.isBefore(closeTime)) {
+                LocalDateTime startTime = slotTime;
+                LocalDateTime endTime = startTime.plusMinutes(slotDurationInMinutes);
+
+                if (endTime.isAfter(closeTime)) break;
+
+                if (!timeSlotRepository.existsByCourtIdAndStartTime(courtId, startTime)) {
+                    // --- LOGIC TÌM GIÁ ---
+                    Double price = findPriceForSlot(court, startTime);
+
+                    TimeSlot slot = TimeSlot.builder()
+                            .court(court)
+                            .startTime(startTime)
+                            .endTime(endTime)
+                            .isAvailable(true)
+                            .price(price) // Gán giá tìm được
+                            .build();
+                    newSlots.add(slot);
+                }
+                slotTime = endTime;
             }
-            return summary;
-        });
-    }
-
-    // --- (Các hàm khác giữ nguyên) ---
-    // ...
-
-    // ==========================================================
-    // --- HÀM HELPER VÀ LOGIC NỘI BỘ ---
-    // ==========================================================
-
-    private Court findCourtById(Integer courtId) {
-        return courtRepository.findById(courtId)
-                .orElseThrow(() -> new ResourceNotFoundException("Sân không tồn tại"));
-    }
-
-    private void checkOwnership(Court court, User currentUser) {
-        boolean isOwner = Objects.equals(court.getOwner().getId(), currentUser.getId());
-        boolean isAdmin = currentUser.getRole() == UserRole.ADMIN;
-
-        if (!isOwner && !isAdmin) {
-            throw new AccessDeniedException("Bạn không có quyền thực hiện hành động này.");
         }
+        List<TimeSlot> savedSlots = timeSlotRepository.saveAll(newSlots);
+        return savedSlots.stream().map(this::mapToTimeSlotDto).collect(Collectors.toList());
     }
 
-    // --- HÀM MAPPER MỚI CHO SUMMARY ---
-    private CourtSummaryResponse mapToSummaryResponse(Court c) {
-        return CourtSummaryResponse.builder()
-                .id(c.getId())
-                .name(c.getName())
-                .address(c.getAddress())
-                .courtType(c.getCourtType())
-                .pricePerHour(c.getPricePerHour())
-                .averageRating(c.getAverageRating())
-                .thumbnailUrl(c.getThumbnailUrl()) // Chỉ lấy thumbnail
-                .latitude(c.getLatitude())
-                .longitude(c.getLongitude())
+    // --- HÀM HELPER MỚI ĐỂ TÌM GIÁ ---
+    private Double findPriceForSlot(Court court, LocalDateTime startTime) {
+        DayOfWeek dayOfWeek = startTime.getDayOfWeek();
+        LocalTime time = startTime.toLocalTime();
+
+        // Tìm quy tắc giá phù hợp
+        List<PricingRule> applicableRules = pricingRuleRepository.findApplicableRule(court.getId(), dayOfWeek, time);
+
+        if (!applicableRules.isEmpty()) {
+            // Nếu có nhiều quy tắc trùng, ưu tiên quy tắc đầu tiên
+            return applicableRules.get(0).getPrice();
+        }
+
+        // Nếu không có quy tắc nào, dùng giá mặc định của sân
+        return court.getPricePerHour();
+    }
+
+    @Override
+    @Transactional
+    public PricingRule setPricingRule(Integer courtId, PricingRuleDto dto, User manager) {
+        Court court = findCourtById(courtId);
+        checkOwnership(court, manager);
+
+        PricingRule rule = PricingRule.builder()
+                .court(court)
+                .dayOfWeek(dto.getDayOfWeek())
+                .startTime(dto.getStartTime())
+                .endTime(dto.getEndTime())
+                .price(dto.getPrice())
                 .build();
+        
+        // Thêm quy tắc mới vào danh sách của sân
+        court.getPricingRules().add(rule);
+        courtRepository.save(court);
+        
+        // Trả về quy tắc vừa được tạo (đã có ID)
+        return rule;
     }
 
-    // --- HÀM MAPPER CŨ CHO DETAIL (Vẫn giữ lại để dùng cho getCourtById) ---
-    private CourtDetailResponse mapToResponse(Court c) {
-        // Dòng này sẽ kích hoạt Lazy Loading, chỉ nên dùng trong hàm getCourtById
-        List<String> imageUrls = c.getImages().stream()
-                                  .map(CourtImage::getImageUrl)
-                                  .collect(Collectors.toList());
+    @Override
+    public List<PricingRule> getPricingRules(Integer courtId) {
+        return pricingRuleRepository.findByCourtId(courtId);
+    }
 
-        return CourtDetailResponse.builder()
-                .id(c.getId())
-                .name(c.getName())
-                .address(c.getAddress())
-                .description(c.getDescription())
-                .courtType(c.getCourtType())
-                .pricePerHour(c.getPricePerHour())
-                .averageRating(c.getAverageRating())
-                .ownerName(c.getOwner().getFullName())
-                .ownerEmail(c.getOwner().getEmail())
-                .thumbnailUrl(c.getThumbnailUrl())
-                .imageUrls(imageUrls) // Lấy toàn bộ album
-                .services(c.getServices())
-                .latitude(c.getLatitude())
-                .longitude(c.getLongitude())
+    @Override
+    @Transactional
+    public void deletePricingRule(Integer courtId, Integer ruleId, User manager) {
+        Court court = findCourtById(courtId);
+        checkOwnership(court, manager);
+
+        pricingRuleRepository.deleteById(ruleId);
+    }
+
+    // ... (các hàm khác giữ nguyên)
+
+    private TimeSlotDto mapToTimeSlotDto(TimeSlot slot) {
+        return TimeSlotDto.builder()
+                .id(slot.getId())
+                .courtId(slot.getCourt().getId())
+                .startTime(slot.getStartTime())
+                .endTime(slot.getEndTime())
+                .isAvailable(slot.isAvailable())
+                .price(slot.getPrice()) // Thêm giá vào DTO
                 .build();
     }
     
-    // ... (các hàm còn lại giữ nguyên)
+    // ... (các hàm helper khác giữ nguyên)
     @Override
     @Transactional
     public CourtDetailResponse createCourt(CreateCourtRequest request, User owner) {
@@ -170,6 +199,12 @@ public class CourtServiceImpl implements CourtService {
     }
 
     @Override
+    public Page<CourtSummaryResponse> searchCourts(CourtSearchCriteria criteria, Pageable pageable) {
+        Page<Court> courts = courtRepository.findAll(courtSpecification.build(criteria), pageable);
+        return courts.map(this::mapToSummaryResponse);
+    }
+
+    @Override
     @Transactional
     public ReviewResponse addReview(Integer courtId, CreateReviewRequest request, User player) {
         Court court = findCourtById(courtId);
@@ -195,38 +230,17 @@ public class CourtServiceImpl implements CourtService {
         Page<Review> reviews = reviewRepository.findByCourtId(courtId, pageable);
         return reviews.map(this::mapToReviewResponse);
     }
-
+    
     @Override
+    @Transactional(readOnly = true)
     public List<TimeSlotDto> getAvailableTimeSlots(Integer courtId, LocalDate date) {
         findCourtById(courtId);
         LocalDateTime startOfDay = date.atStartOfDay();
         LocalDateTime endOfDay = date.atTime(23, 59, 59);
-        List<TimeSlot> slots = timeSlotRepository.findAvailableSlotsByCourtAndDate(courtId, startOfDay, endOfDay);
-        return slots.stream().map(this::mapToTimeSlotDto).collect(Collectors.toList());
-    }
-
-    @Override
-    @Transactional
-    public List<TimeSlotDto> generateInitialTimeSlots(Integer courtId) {
-        Court court = findCourtById(courtId);
-        List<TimeSlot> newSlots = new java.util.ArrayList<>();
-        LocalDate today = LocalDate.now();
-        for (int i = 0; i < 7; i++) {
-            LocalDate date = today.plusDays(i);
-            for (int hour = 8; hour <= 20; hour += 2) {
-                LocalDateTime startTime = date.atTime(hour, 0);
-                LocalDateTime endTime = date.atTime(hour + 2, 0);
-                TimeSlot slot = TimeSlot.builder()
-                        .court(court)
-                        .startTime(startTime)
-                        .endTime(endTime)
-                        .isAvailable(true)
-                        .build();
-                newSlots.add(slot);
-            }
-        }
-        timeSlotRepository.saveAll(newSlots);
-        return newSlots.stream().map(this::mapToTimeSlotDto).collect(Collectors.toList());
+        List<TimeSlot> slots = timeSlotRepository.findSlotsByCourtAndDate(courtId, startOfDay, endOfDay);
+        return slots.stream()
+                .map(this::mapToTimeSlotDto)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -296,40 +310,18 @@ public class CourtServiceImpl implements CourtService {
         courtRepository.save(court);
     }
 
-    private ReviewResponse mapToReviewResponse(Review r) {
-        return ReviewResponse.builder()
-                .id(r.getId())
-                .playerName(r.getPlayer().getFullName())
-                .playerEmail(r.getPlayer().getEmail())
-                .rating(r.getRating())
-                .comment(r.getComment())
-                .createdAt(r.getCreatedAt())
-                .build();
+    private Court findCourtById(Integer courtId) {
+        return courtRepository.findById(courtId).orElseThrow(() -> new ResourceNotFoundException("Sân không tồn tại"));
     }
 
-    private TimeSlotDto mapToTimeSlotDto(TimeSlot slot) {
-        long startTimeMillis = slot.getStartTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-        long endTimeMillis = slot.getEndTime().atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-        return TimeSlotDto.builder()
-                .id(slot.getId().toString())
-                .courtId(slot.getCourt().getId().toString())
-                .startTime(startTimeMillis)
-                .endTime(endTimeMillis)
-                .isAvailable(slot.isAvailable())
-                .build();
+    private void checkOwnership(Court court, User currentUser) {
+        boolean isOwner = Objects.equals(court.getOwner().getId(), currentUser.getId());
+        boolean isAdmin = currentUser.getRole() == UserRole.ADMIN;
+        if (!isOwner && !isAdmin) {
+            throw new AccessDeniedException("Bạn không có quyền thực hiện hành động này.");
+        }
     }
 
-    private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-        final int R = 6371;
-        double dLat = Math.toRadians(lat2 - lat1);
-        double dLon = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
-                        Math.sin(dLon/2) * Math.sin(dLon/2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return Math.round(R * c * 10.0) / 10.0;
-    }
-    
     @Transactional
     public void updateCourtAverageRating(Integer courtId) {
         Double avgRating = reviewRepository.calculateAverageRating(courtId);
@@ -340,5 +332,50 @@ public class CourtServiceImpl implements CourtService {
             court.setAverageRating(Math.round(avgRating * 10.0) / 10.0);
         }
         courtRepository.save(court);
+    }
+
+    private CourtDetailResponse mapToResponse(Court c) {
+        List<String> imageUrls = c.getImages().stream().map(CourtImage::getImageUrl).collect(Collectors.toList());
+        return CourtDetailResponse.builder()
+                .id(c.getId())
+                .name(c.getName())
+                .address(c.getAddress())
+                .description(c.getDescription())
+                .courtType(c.getCourtType())
+                .pricePerHour(c.getPricePerHour())
+                .averageRating(c.getAverageRating())
+                .ownerName(c.getOwner().getFullName())
+                .ownerEmail(c.getOwner().getEmail())
+                .thumbnailUrl(c.getThumbnailUrl())
+                .imageUrls(imageUrls)
+                .services(c.getServices())
+                .latitude(c.getLatitude())
+                .longitude(c.getLongitude())
+                .build();
+    }
+    
+    private CourtSummaryResponse mapToSummaryResponse(Court c) {
+        return CourtSummaryResponse.builder()
+                .id(c.getId())
+                .name(c.getName())
+                .address(c.getAddress())
+                .courtType(c.getCourtType())
+                .pricePerHour(c.getPricePerHour())
+                .averageRating(c.getAverageRating())
+                .thumbnailUrl(c.getThumbnailUrl())
+                .latitude(c.getLatitude())
+                .longitude(c.getLongitude())
+                .build();
+    }
+
+    private ReviewResponse mapToReviewResponse(Review r) {
+        return ReviewResponse.builder()
+                .id(r.getId())
+                .playerName(r.getPlayer().getFullName())
+                .playerEmail(r.getPlayer().getEmail())
+                .rating(r.getRating())
+                .comment(r.getComment())
+                .createdAt(r.getCreatedAt())
+                .build();
     }
 }
