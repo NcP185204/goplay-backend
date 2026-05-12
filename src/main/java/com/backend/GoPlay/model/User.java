@@ -46,6 +46,10 @@ public class User implements UserDetails {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserRole role;
+    
+    // --- THÊM TRƯỜNG NÀY ĐỂ LƯU TOKEN FIREBASE ---
+    @Column(name = "fcm_token")
+    private String fcmToken;
 
     // --- MỐI QUAN HỆ NHIỀU-NHIỀU VỚI SÂN YÊU THÍCH ---
     @ManyToMany(fetch = FetchType.LAZY)
