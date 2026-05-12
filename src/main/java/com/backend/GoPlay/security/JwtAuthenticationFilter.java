@@ -35,7 +35,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             "/api/auth/register",
             "/api/auth/login",
             "/api/auth/social-login",
-            "/api/auth/refresh"
+            "/api/auth/refresh",
+            "/v3/api-docs",
+            "/swagger-ui",
+            "/actuator"
     );
 
     @Override
@@ -59,10 +62,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             userEmail = jwtTokenProvider.extractUsername(jwt);
         } catch (ExpiredJwtException e) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Access Token đã hết hạn. Vui lòng làm mới.");
-            return;
+            // Thay vì dùng sendError (sẽ bị filter lại thành 403), ta tự ghi thẳng vào response
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\": \"Unauthorized\", \"message\": \"Access Token đã hết hạn. Vui lòng làm mới.\"}");
+            return; // Quan trọng: dừng chuỗi filter ở đây
         } catch (SignatureException | MalformedJwtException | UnsupportedJwtException | IllegalArgumentException e) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Access Token không hợp lệ.");
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\": \"Unauthorized\", \"message\": \"Access Token không hợp lệ.\"}");
             return;
         }
 
@@ -93,7 +101,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return true;
         }
 
-        // Bỏ qua filter cho các API xác thực
+        // Bỏ qua filter cho các API xác thực, Swagger và Actuator
         return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
     }
 }
