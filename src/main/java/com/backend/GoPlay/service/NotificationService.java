@@ -1,4 +1,9 @@
 package com.backend.GoPlay.service;
 
-public class NotificationService {
+import com.backend.GoPlay.event.BookingConfirmedEvent;
+
+public interface NotificationService {
+
+    void handleBookingConfirmedEvent(BookingConfirmedEvent event);
+
 }
