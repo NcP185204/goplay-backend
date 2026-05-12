@@ -6,6 +6,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +15,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class JwtTokenProvider {
@@ -37,7 +39,18 @@ public class JwtTokenProvider {
     }
 
     public String generateAccessToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, accessTokenExpiration);
+        Map<String, Object> extraClaims = new HashMap<>();
+        
+        // --- THÊM ROLE VÀO TOKEN ---
+        // Lấy danh sách quyền hạn và chuyển thành chuỗi (ví dụ: "ROLE_MANAGER")
+        String authorities = userDetails.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .collect(Collectors.joining(","));
+        
+        extraClaims.put("role", authorities); // Hoặc dùng key "authorities"
+        // ---------------------------
+
+        return buildToken(extraClaims, userDetails, accessTokenExpiration);
     }
 
     public String generateRefreshToken(UserDetails userDetails) {
