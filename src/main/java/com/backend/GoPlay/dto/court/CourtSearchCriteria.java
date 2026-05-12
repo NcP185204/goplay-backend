@@ -6,6 +6,7 @@ import lombok.Data;
 @Data
 public class CourtSearchCriteria {
     private String name;
+    private String address; 
     private SportType courtType;
     private Double minPrice;
     private Double maxPrice;
