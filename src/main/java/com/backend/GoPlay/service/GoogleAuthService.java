@@ -1,6 +1,7 @@
 package com.backend.GoPlay.service;
 
 import com.backend.GoPlay.dto.auth.SocialUserInfo;
+import com.backend.GoPlay.service.strategy.SocialAuthStrategy;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.http.javanet.NetHttpTransport;
@@ -11,15 +12,21 @@ import org.springframework.stereotype.Service;
 import java.util.Collections;
 
 @Service
-public class GoogleAuthService {
+public class GoogleAuthService implements SocialAuthStrategy {
 
     @Value("${google.oauth.client-id}")
     private String clientId;
 
+    @Override
+    public String getProviderName() {
+        return "GOOGLE";
+    }
+
     /**
      * Xác minh Google ID Token và lấy thông tin User (OpenID Connect)
      */
-    public SocialUserInfo verifyGoogleIdToken(String idTokenString) {
+    @Override
+    public SocialUserInfo verifyToken(String idTokenString) {
 
         GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), GsonFactory.getDefaultInstance())
                 .setAudience(Collections.singletonList(clientId))
