@@ -33,9 +33,21 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(req -> req
+                        // Bỏ qua xác thực cho các endpoint liên quan đến Auth
                         .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/social-login", "/api/auth/refresh").permitAll()
-                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**").permitAll()
+                        
+                        // Bỏ qua xác thực cho các endpoint của Swagger/OpenAPI
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        
+                        // Bỏ qua xác thực cho các endpoint của Spring Boot Actuator
+                        .requestMatchers("/actuator/**").permitAll()
+
+                        .requestMatchers("/api/payments/momo/**").permitAll()
+                        
+                        // Bỏ qua xác thực cho API GET của Court
                         .requestMatchers(HttpMethod.GET, "/api/courts/**").permitAll()
+                        
+                        // Yêu cầu xác thực với tất cả các request còn lại
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
