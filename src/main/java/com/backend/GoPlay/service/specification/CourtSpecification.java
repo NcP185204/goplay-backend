@@ -2,7 +2,9 @@ package com.backend.GoPlay.service.specification;
 
 import com.backend.GoPlay.dto.court.CourtSearchCriteria; // Import lớp chứa các tiêu chí tìm kiếm (tên, giá, loại sân,...)
 import com.backend.GoPlay.model.Court;                   // Import Entity Court để định nghĩa truy vấn
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;          // Import interface Predicate của JPA Criteria API
+import jakarta.persistence.criteria.Root;
 import org.springframework.data.jpa.domain.Specification; // Import interface chính của Spring Data JPA Specification
 import org.springframework.stereotype.Component;          // Import annotation đánh dấu Component
 import java.util.ArrayList;                             // Import ArrayList để lưu trữ danh sách điều kiện truy vấn
@@ -39,9 +41,15 @@ public class CourtSpecification {
                 ));
             }
 
+            // --- 1.5. LỌC THEO ĐỊA CHỈ TƯƠNG ĐỐI (Thông minh xử lý viết tắt Q1, Quận 1, Q.1...) ---
+            if (criteria.getAddress() != null && !criteria.getAddress().trim().isEmpty()) {
+                predicates.add(buildAddressPredicate(criteria.getAddress(), root, cb));
+            }
+
             // --- 2. LỌC THEO LOẠI SÂN (Exact Match) ---
             if (criteria.getCourtType() != null) {
                 // Thêm điều kiện: courtType phải bằng giá trị đã cho
+                // Enum đã được map tự động bởi Hibernate và xử lý chuẩn từ Request Parameter
                 predicates.add(cb.equal(root.get("courtType"), criteria.getCourtType()));
             }
 
@@ -86,5 +94,54 @@ public class CourtSpecification {
             // Nếu danh sách rỗng, truy vấn sẽ không có điều kiện WHERE.
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+    }
+
+    /**
+     * Hàm hỗ trợ xử lý logic tìm kiếm địa chỉ thông minh.
+     * Tự động sinh ra các biến thể viết tắt của Quận (Q1, Quận 1, Q.1, Q 1).
+     */
+    private Predicate buildAddressPredicate(String addressInput, Root<Court> root, CriteriaBuilder cb) {
+        String lowerInput = addressInput.toLowerCase().trim();
+        List<String> searchTerms = new ArrayList<>();
+        
+        // Xử lý từ khóa "Q" kèm theo số (VD: q1, q2, q12)
+        if (lowerInput.matches("^q\\s*\\d+$")) {
+            String number = lowerInput.replace("q", "").trim();
+            searchTerms.add("quận " + number);
+            searchTerms.add("q." + number);
+            searchTerms.add("q " + number);
+            searchTerms.add("q" + number);
+        } 
+        // Xử lý từ khóa "Quận" kèm theo số (VD: quận 1, quận 12)
+        else if (lowerInput.matches("^quận\\s*\\d+$")) {
+            String number = lowerInput.replace("quận", "").trim();
+            searchTerms.add("q" + number);
+            searchTerms.add("q." + number);
+            searchTerms.add("q " + number);
+            searchTerms.add("quận " + number);
+        }
+        // Xử lý Huyện (VD: h.bình chánh, huyện bình chánh)
+        else if (lowerInput.startsWith("h ")) {
+            searchTerms.add("huyện " + lowerInput.substring(2).trim());
+        } else if (lowerInput.startsWith("huyện ")) {
+            searchTerms.add("h " + lowerInput.substring(6).trim());
+        } else {
+            // Nếu không phải các dạng trên, chỉ tìm chuỗi gốc
+            searchTerms.add(lowerInput);
+        }
+
+        // Tạo danh sách các điều kiện OR
+        List<Predicate> orPredicates = new ArrayList<>();
+        for (String term : searchTerms) {
+            // SỬA LỖI: Thêm khoảng trắng hoặc dấu phẩy để đảm bảo tìm đúng từ
+            // Ví dụ: Tìm " q1," hoặc " q1 " hoặc " q1."
+            orPredicates.add(cb.like(cb.lower(root.get("address")), "% " + term + ",%"));
+            orPredicates.add(cb.like(cb.lower(root.get("address")), "% " + term + " %"));
+            orPredicates.add(cb.like(cb.lower(root.get("address")), "%," + term + ",%"));
+            orPredicates.add(cb.like(cb.lower(root.get("address")), "%," + term + " %"));
+        }
+
+        // Kết hợp chúng lại bằng toán tử OR (Hoặc chứa " q1," hoặc " quận 1 "...)
+        return cb.or(orPredicates.toArray(new Predicate[0]));
     }
 }
