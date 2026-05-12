@@ -2,10 +2,11 @@ package com.backend.GoPlay.service.impl;
 
 import com.backend.GoPlay.dto.court.*;
 import com.backend.GoPlay.exception.ResourceNotFoundException;
-import com.backend.GoPlay.model.*;
-import com.backend.GoPlay.repository.*;
+import com.backend.GoPlay.model.Court;
+import com.backend.GoPlay.model.CourtImage;
+import com.backend.GoPlay.model.User;
+import com.backend.GoPlay.repository.CourtRepository;
 import com.backend.GoPlay.service.CourtService;
-import com.backend.GoPlay.service.FileStorageService;
 import com.backend.GoPlay.service.specification.CourtSpecification;
 import com.backend.GoPlay.util.UserRole;
 import lombok.RequiredArgsConstructor;
@@ -14,14 +15,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.time.DayOfWeek;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -31,124 +25,8 @@ import java.util.stream.Collectors;
 public class CourtServiceImpl implements CourtService {
 
     private final CourtRepository courtRepository;
-    private final ReviewRepository reviewRepository;
     private final CourtSpecification courtSpecification;
-    private final TimeSlotRepository timeSlotRepository;
-    private final UserRepository userRepository;
-    private final FileStorageService fileStorageService;
-    private final CourtImageRepository courtImageRepository;
-    private final PricingRuleRepository pricingRuleRepository; // INJECT REPO MỚI
 
-    // ... (các hàm khác giữ nguyên)
-
-    @Override
-    @Transactional
-    public List<TimeSlotDto> generateInitialTimeSlots(Integer courtId, GenerateTimeSlotRequest request) {
-        Court court = findCourtById(courtId);
-        List<TimeSlot> newSlots = new ArrayList<>();
-
-        LocalDate startDate = request.getStartDate();
-        int numberOfDays = request.getNumberOfDays();
-        int slotDurationInMinutes = request.getSlotDurationInMinutes();
-
-        for (int i = 0; i < numberOfDays; i++) {
-            LocalDate currentDate = startDate.plusDays(i);
-            LocalDateTime slotTime = currentDate.atTime(request.getOpenTime());
-            LocalDateTime closeTime = currentDate.atTime(request.getCloseTime());
-
-            while (slotTime.isBefore(closeTime)) {
-                LocalDateTime startTime = slotTime;
-                LocalDateTime endTime = startTime.plusMinutes(slotDurationInMinutes);
-
-                if (endTime.isAfter(closeTime)) break;
-
-                if (!timeSlotRepository.existsByCourtIdAndStartTime(courtId, startTime)) {
-                    // --- LOGIC TÌM GIÁ ---
-                    Double price = findPriceForSlot(court, startTime);
-
-                    TimeSlot slot = TimeSlot.builder()
-                            .court(court)
-                            .startTime(startTime)
-                            .endTime(endTime)
-                            .isAvailable(true)
-                            .price(price) // Gán giá tìm được
-                            .build();
-                    newSlots.add(slot);
-                }
-                slotTime = endTime;
-            }
-        }
-        List<TimeSlot> savedSlots = timeSlotRepository.saveAll(newSlots);
-        return savedSlots.stream().map(this::mapToTimeSlotDto).collect(Collectors.toList());
-    }
-
-    // --- HÀM HELPER MỚI ĐỂ TÌM GIÁ ---
-    private Double findPriceForSlot(Court court, LocalDateTime startTime) {
-        DayOfWeek dayOfWeek = startTime.getDayOfWeek();
-        LocalTime time = startTime.toLocalTime();
-
-        // Tìm quy tắc giá phù hợp
-        List<PricingRule> applicableRules = pricingRuleRepository.findApplicableRule(court.getId(), dayOfWeek, time);
-
-        if (!applicableRules.isEmpty()) {
-            // Nếu có nhiều quy tắc trùng, ưu tiên quy tắc đầu tiên
-            return applicableRules.get(0).getPrice();
-        }
-
-        // Nếu không có quy tắc nào, dùng giá mặc định của sân
-        return court.getPricePerHour();
-    }
-
-    @Override
-    @Transactional
-    public PricingRule setPricingRule(Integer courtId, PricingRuleDto dto, User manager) {
-        Court court = findCourtById(courtId);
-        checkOwnership(court, manager);
-
-        PricingRule rule = PricingRule.builder()
-                .court(court)
-                .dayOfWeek(dto.getDayOfWeek())
-                .startTime(dto.getStartTime())
-                .endTime(dto.getEndTime())
-                .price(dto.getPrice())
-                .build();
-        
-        // Thêm quy tắc mới vào danh sách của sân
-        court.getPricingRules().add(rule);
-        courtRepository.save(court);
-        
-        // Trả về quy tắc vừa được tạo (đã có ID)
-        return rule;
-    }
-
-    @Override
-    public List<PricingRule> getPricingRules(Integer courtId) {
-        return pricingRuleRepository.findByCourtId(courtId);
-    }
-
-    @Override
-    @Transactional
-    public void deletePricingRule(Integer courtId, Integer ruleId, User manager) {
-        Court court = findCourtById(courtId);
-        checkOwnership(court, manager);
-
-        pricingRuleRepository.deleteById(ruleId);
-    }
-
-    // ... (các hàm khác giữ nguyên)
-
-    private TimeSlotDto mapToTimeSlotDto(TimeSlot slot) {
-        return TimeSlotDto.builder()
-                .id(slot.getId())
-                .courtId(slot.getCourt().getId())
-                .startTime(slot.getStartTime())
-                .endTime(slot.getEndTime())
-                .isAvailable(slot.isAvailable())
-                .price(slot.getPrice()) // Thêm giá vào DTO
-                .build();
-    }
-    
-    // ... (các hàm helper khác giữ nguyên)
     @Override
     @Transactional
     public CourtDetailResponse createCourt(CreateCourtRequest request, User owner) {
@@ -204,112 +82,6 @@ public class CourtServiceImpl implements CourtService {
         return courts.map(this::mapToSummaryResponse);
     }
 
-    @Override
-    @Transactional
-    public ReviewResponse addReview(Integer courtId, CreateReviewRequest request, User player) {
-        Court court = findCourtById(courtId);
-        if (player.getRole() != UserRole.PLAYER) {
-            throw new AccessDeniedException("Chỉ người chơi (PLAYER) mới có thể đánh giá.");
-        }
-        Review review = Review.builder()
-                .court(court)
-                .player(player)
-                .rating(request.getRating())
-                .comment(request.getComment())
-                .build();
-        Review savedReview = reviewRepository.save(review);
-        updateCourtAverageRating(courtId);
-        return mapToReviewResponse(savedReview);
-    }
-
-    @Override
-    public Page<ReviewResponse> getReviews(Integer courtId, Pageable pageable) {
-        if (!courtRepository.existsById(courtId)) {
-            throw new ResourceNotFoundException("Sân không tồn tại");
-        }
-        Page<Review> reviews = reviewRepository.findByCourtId(courtId, pageable);
-        return reviews.map(this::mapToReviewResponse);
-    }
-    
-    @Override
-    @Transactional(readOnly = true)
-    public List<TimeSlotDto> getAvailableTimeSlots(Integer courtId, LocalDate date) {
-        findCourtById(courtId);
-        LocalDateTime startOfDay = date.atStartOfDay();
-        LocalDateTime endOfDay = date.atTime(23, 59, 59);
-        List<TimeSlot> slots = timeSlotRepository.findSlotsByCourtAndDate(courtId, startOfDay, endOfDay);
-        return slots.stream()
-                .map(this::mapToTimeSlotDto)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    @Transactional
-    public void addCourtToFavorites(Integer courtId, User player) {
-        User managedPlayer = userRepository.findById(player.getId()).orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        Court court = findCourtById(courtId);
-        managedPlayer.getFavoriteCourts().add(court);
-    }
-
-    @Override
-    @Transactional
-    public void removeCourtFromFavorites(Integer courtId, User player) {
-        User managedPlayer = userRepository.findById(player.getId()).orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        Court court = findCourtById(courtId);
-        managedPlayer.getFavoriteCourts().remove(court);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<CourtDetailResponse> getFavoriteCourts(User player) {
-        User userWithFavorites = userRepository.findById(player.getId()).orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        return userWithFavorites.getFavoriteCourts().stream().map(this::mapToResponse).collect(Collectors.toList());
-    }
-
-    @Override
-    @Transactional
-    public CourtImage uploadCourtImage(Integer courtId, MultipartFile file, User manager) {
-        Court court = findCourtById(courtId);
-        checkOwnership(court, manager);
-        String imageUrl = fileStorageService.store(file, "courts");
-        CourtImage newImage = CourtImage.builder().imageUrl(imageUrl).court(court).build();
-        if (court.getThumbnailUrl() == null || court.getThumbnailUrl().isEmpty()) {
-            court.setThumbnailUrl(imageUrl);
-            courtRepository.save(court);
-        }
-        return courtImageRepository.save(newImage);
-    }
-
-    @Override
-    @Transactional
-    public void deleteCourtImage(Integer courtId, Integer imageId, User manager) {
-        Court court = findCourtById(courtId);
-        checkOwnership(court, manager);
-        CourtImage image = courtImageRepository.findById(imageId).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy ảnh"));
-        if (!image.getCourt().getId().equals(courtId)) {
-            throw new AccessDeniedException("Ảnh không thuộc về sân này");
-        }
-        fileStorageService.delete(image.getImageUrl());
-        courtImageRepository.delete(image);
-        if (image.getImageUrl().equals(court.getThumbnailUrl())) {
-            court.setThumbnailUrl(null);
-            courtRepository.save(court);
-        }
-    }
-
-    @Override
-    @Transactional
-    public void setThumbnail(Integer courtId, Integer imageId, User manager) {
-        Court court = findCourtById(courtId);
-        checkOwnership(court, manager);
-        CourtImage image = courtImageRepository.findById(imageId).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy ảnh"));
-        if (!image.getCourt().getId().equals(courtId)) {
-            throw new AccessDeniedException("Ảnh không thuộc về sân này");
-        }
-        court.setThumbnailUrl(image.getImageUrl());
-        courtRepository.save(court);
-    }
-
     private Court findCourtById(Integer courtId) {
         return courtRepository.findById(courtId).orElseThrow(() -> new ResourceNotFoundException("Sân không tồn tại"));
     }
@@ -320,18 +92,6 @@ public class CourtServiceImpl implements CourtService {
         if (!isOwner && !isAdmin) {
             throw new AccessDeniedException("Bạn không có quyền thực hiện hành động này.");
         }
-    }
-
-    @Transactional
-    public void updateCourtAverageRating(Integer courtId) {
-        Double avgRating = reviewRepository.calculateAverageRating(courtId);
-        Court court = findCourtById(courtId);
-        if (avgRating == null) {
-            court.setAverageRating(0.0);
-        } else {
-            court.setAverageRating(Math.round(avgRating * 10.0) / 10.0);
-        }
-        courtRepository.save(court);
     }
 
     private CourtDetailResponse mapToResponse(Court c) {
@@ -365,17 +125,6 @@ public class CourtServiceImpl implements CourtService {
                 .thumbnailUrl(c.getThumbnailUrl())
                 .latitude(c.getLatitude())
                 .longitude(c.getLongitude())
-                .build();
-    }
-
-    private ReviewResponse mapToReviewResponse(Review r) {
-        return ReviewResponse.builder()
-                .id(r.getId())
-                .playerName(r.getPlayer().getFullName())
-                .playerEmail(r.getPlayer().getEmail())
-                .rating(r.getRating())
-                .comment(r.getComment())
-                .createdAt(r.getCreatedAt())
                 .build();
     }
 }
